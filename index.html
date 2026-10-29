@@ -1,0 +1,517 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="バスケタイマー">
+<meta name="theme-color" content="#111111">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-180.png">
+<title>バスケタイマー</title>
+<style>
+  :root {
+    --bg: #111;
+    --fg: #fff;
+    --muted: #9a9a9a;
+    --play: #ff6a13;
+    --rest: #1e88e5;
+    --done: #43a047;
+    --panel: #1d1d1f;
+    --line: #333;
+    --accent: var(--muted);
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Segoe UI", sans-serif;
+    display: flex;
+    flex-direction: column;
+    padding: env(safe-area-inset-top) 16px env(safe-area-inset-bottom);
+    user-select: none;
+    -webkit-user-select: none;
+    transition: background .3s;
+  }
+  body.play { --accent: var(--play); background: #2a1306; }
+  body.rest { --accent: var(--rest); background: #06192b; }
+  body.done { --accent: var(--done); background: #0b2210; }
+
+  header { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; }
+  header h1 { font-size: 17px; margin: 0; font-weight: 600; color: var(--muted); }
+  .icon-btn {
+    background: none; border: 1px solid var(--line); color: var(--fg);
+    border-radius: 10px; padding: 8px 12px; font-size: 15px;
+  }
+
+  main { flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 8px; }
+  #phase { font-size: 40px; font-weight: 800; color: var(--accent); letter-spacing: .1em; }
+  #round { font-size: 20px; color: var(--muted); }
+  #time {
+    font-size: min(30vw, 40vh);
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+    letter-spacing: -.02em;
+  }
+  #next { font-size: 17px; color: var(--muted); min-height: 1.4em; }
+  .bar { width: 100%; height: 8px; background: var(--line); border-radius: 4px; overflow: hidden; }
+  .bar > div { height: 100%; width: 0; background: var(--accent); }
+
+  .controls { display: grid; grid-template-columns: 1fr 2fr 1fr; gap: 12px; padding: 16px 0 20px; }
+  .controls button {
+    border: none; border-radius: 18px; font-size: 20px; font-weight: 700;
+    padding: 22px 0; color: var(--fg); background: var(--panel);
+  }
+  #startBtn { background: var(--play); font-size: 26px; }
+  #startBtn.pause { background: #555; }
+  .controls button:active { opacity: .7; }
+
+  .quick { display: flex; justify-content: center; gap: 10px; padding-bottom: 8px; }
+  .chip {
+    border: 1px solid var(--line); background: var(--panel); color: var(--fg);
+    border-radius: 999px; padding: 10px 16px; font-size: 16px;
+  }
+  .chip.on { background: var(--fg); color: #111; border-color: var(--fg); }
+
+  /* 設定シート */
+  #sheet {
+    position: fixed; inset: 0; background: rgba(0,0,0,.6);
+    display: none; align-items: flex-end; z-index: 10;
+  }
+  #sheet.open { display: flex; }
+  .sheet-body {
+    width: 100%; max-height: 90%; overflow-y: auto; background: var(--panel);
+    border-radius: 20px 20px 0 0; padding: 20px 16px calc(20px + env(safe-area-inset-bottom));
+  }
+  .sheet-body h2 { margin: 0 0 12px; font-size: 20px; }
+  .row { display: flex; justify-content: space-between; align-items: center; padding: 14px 0; border-bottom: 1px solid var(--line); gap: 12px; }
+  .row label { font-size: 17px; }
+  .row small { display: block; color: var(--muted); font-size: 13px; }
+  .stepper { display: flex; align-items: center; gap: 8px; }
+  .stepper button {
+    width: 44px; height: 44px; border-radius: 12px; border: none;
+    background: #333; color: var(--fg); font-size: 22px;
+  }
+  .stepper output { min-width: 72px; text-align: center; font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .switch { position: relative; width: 52px; height: 32px; flex-shrink: 0; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .switch span { position: absolute; inset: 0; background: #444; border-radius: 16px; transition: .2s; }
+  .switch span::after { content: ""; position: absolute; left: 3px; top: 3px; width: 26px; height: 26px; background: #fff; border-radius: 50%; transition: .2s; }
+  .switch input:checked + span { background: var(--done); }
+  .switch input:checked + span::after { transform: translateX(20px); }
+  input[type=range] { width: 50%; accent-color: var(--play); }
+  .sheet-actions { display: flex; gap: 12px; margin-top: 16px; }
+  .sheet-actions button { flex: 1; padding: 16px; border-radius: 14px; border: none; font-size: 17px; font-weight: 700; }
+  #testBtn { background: #333; color: var(--fg); }
+  #closeBtn { background: var(--play); color: #fff; }
+  .note { color: var(--muted); font-size: 13px; line-height: 1.5; margin-top: 12px; }
+</style>
+</head>
+<body class="idle">
+  <header>
+    <h1>🏀 バスケタイマー</h1>
+    <button class="icon-btn" id="settingsBtn">⚙ 設定</button>
+  </header>
+
+  <main>
+    <div id="phase">準備</div>
+    <div id="round">ラウンド 1</div>
+    <div id="time">6:00</div>
+    <div class="bar"><div id="progress"></div></div>
+    <div id="next"></div>
+  </main>
+
+  <div class="quick">
+    <button class="chip" id="tickChip">カチカチ ON</button>
+  </div>
+
+  <div class="controls">
+    <button id="resetBtn">リセット</button>
+    <button id="startBtn">スタート</button>
+    <button id="skipBtn">スキップ</button>
+  </div>
+
+  <div id="sheet">
+    <div class="sheet-body">
+      <h2>設定</h2>
+      <div class="row">
+        <label>試合時間</label>
+        <div class="stepper" data-key="play">
+          <button data-d="-30">−</button><output></output><button data-d="30">＋</button>
+        </div>
+      </div>
+      <div class="row">
+        <label>休憩時間</label>
+        <div class="stepper" data-key="rest">
+          <button data-d="-30">−</button><output></output><button data-d="30">＋</button>
+        </div>
+      </div>
+      <div class="row">
+        <label>ラウンド数<small>∞ = ずっと繰り返す</small></label>
+        <div class="stepper" data-key="rounds">
+          <button data-d="-1">−</button><output></output><button data-d="1">＋</button>
+        </div>
+      </div>
+      <div class="row">
+        <label for="tick">カチカチ音（1秒ごと）</label>
+        <label class="switch"><input type="checkbox" id="tick"><span></span></label>
+      </div>
+      <div class="row">
+        <label for="tickRest">休憩中もカチカチ</label>
+        <label class="switch"><input type="checkbox" id="tickRest"><span></span></label>
+      </div>
+      <div class="row">
+        <label for="countdown">残り5秒のカウントダウン音</label>
+        <label class="switch"><input type="checkbox" id="countdown"><span></span></label>
+      </div>
+      <div class="row">
+        <label for="volume">音量</label>
+        <input type="range" id="volume" min="10" max="100" step="5">
+      </div>
+      <div class="sheet-actions">
+        <button id="testBtn">🔊 音テスト</button>
+        <button id="closeBtn">閉じる</button>
+      </div>
+      <p class="note">
+        iPhoneの本体音量を最大にしてください。マナーモードでも鳴るように設定していますが、古いiOSでは鳴らない場合があります。<br>
+        画面を消すと動作が止まるため、タイマー作動中は画面を点けたままにします。
+      </p>
+    </div>
+  </div>
+
+<script>
+const $ = id => document.getElementById(id);
+
+// ---------- 設定 ----------
+const DEFAULTS = { play: 360, rest: 240, rounds: 0, tick: true, tickRest: true, countdown: true, volume: 100 };
+let S = { ...DEFAULTS };
+try { Object.assign(S, JSON.parse(localStorage.getItem('bball-timer') || '{}')); } catch (e) {}
+function save() { try { localStorage.setItem('bball-timer', JSON.stringify(S)); } catch (e) {} }
+
+const LIMITS = { play: [30, 3600], rest: [0, 3600], rounds: [0, 99] };
+
+// ---------- サウンド ----------
+let ctx, master, silentAudio;
+
+function initAudio() {
+  if (!ctx) {
+    ctx = new (window.AudioContext || window.webkitAudioContext)();
+    // 歪ませて音圧（平均音量）を最大まで上げる。出力は ±1 に収まるので音割れ以上にはならない
+    const drive = ctx.createWaveShaper();
+    const k = 4, n = 2048, curve = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const x = (i / (n - 1)) * 2 - 1;
+      curve[i] = Math.tanh(k * x) / Math.tanh(k);
+    }
+    drive.curve = curve;
+    drive.oversample = '4x';
+    master = ctx.createGain();
+    master.connect(drive);
+    drive.connect(ctx.destination);
+  }
+  if (ctx.state !== 'running') ctx.resume();
+  master.gain.value = masterGain();
+
+  // iPhoneのマナーモードでも鳴らす（iOS 17+）
+  if (navigator.audioSession) {
+    try { navigator.audioSession.type = 'playback'; } catch (e) {}
+  }
+  // 旧iOS向け: 無音をループ再生してオーディオセッションを再生モードにする
+  if (!silentAudio) {
+    silentAudio = new Audio(URL.createObjectURL(silentWav()));
+    silentAudio.loop = true;
+    silentAudio.setAttribute('playsinline', '');
+  }
+  silentAudio.play().catch(() => {});
+}
+
+function silentWav() {
+  const sr = 8000, n = sr;
+  const buf = new ArrayBuffer(44 + n);
+  const v = new DataView(buf);
+  const str = (o, s) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+  str(0, 'RIFF'); v.setUint32(4, 36 + n, true); str(8, 'WAVE');
+  str(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, sr, true); v.setUint32(28, sr, true); v.setUint16(32, 1, true); v.setUint16(34, 8, true);
+  str(36, 'data'); v.setUint32(40, n, true);
+  for (let i = 0; i < n; i++) v.setUint8(44 + i, 128);
+  return new Blob([buf], { type: 'audio/wav' });
+}
+
+const masterGain = () => (S.volume / 100) * 2;
+
+// fm: 周波数の揺れ幅(Hz)、am: 音量の揺れ（0〜1）。揺らすと反響の中でも聞き分けやすい
+function tone(freq, dur, { type = 'square', vol = 1, delay = 0, fm = 0, fmRate = 0, am = 0, amRate = 0 } = {}) {
+  if (!ctx) return;
+  const t = ctx.currentTime + delay;
+  const end = t + dur + 0.02;
+  const o = ctx.createOscillator();
+  const env = ctx.createGain();
+  o.type = type;
+  o.frequency.value = freq;
+  env.gain.setValueAtTime(0, t);
+  env.gain.linearRampToValueAtTime(vol, t + 0.003);
+  env.gain.setValueAtTime(vol, t + Math.max(0.004, dur - 0.012));
+  env.gain.linearRampToValueAtTime(0, t + dur);
+  o.connect(env);
+
+  if (fm) {
+    const lfo = ctx.createOscillator(), depth = ctx.createGain();
+    lfo.frequency.value = fmRate;
+    depth.gain.value = fm;
+    lfo.connect(depth).connect(o.frequency);
+    lfo.start(t); lfo.stop(end);
+  }
+  let out = env;
+  if (am) {
+    const amp = ctx.createGain(), lfo = ctx.createOscillator(), depth = ctx.createGain();
+    amp.gain.value = 1 - am;
+    lfo.type = 'square';
+    lfo.frequency.value = amRate;
+    depth.gain.value = am;
+    lfo.connect(depth).connect(amp.gain);
+    env.connect(amp);
+    lfo.start(t); lfo.stop(end);
+    out = amp;
+  }
+  out.connect(master);
+  o.start(t);
+  o.stop(end);
+}
+
+// iPhoneのスピーカーは低音が出ないので、耳に一番大きく聞こえる 1〜3.5kHz に寄せている
+const sound = {
+  // 鋭い「カチッ」
+  tick() {
+    tone(3200, 0.03, { vol: 1 });
+    tone(1600, 0.02, { vol: 0.6 });
+  },
+  // 残り5秒の「ピッ」
+  countdown() {
+    tone(2000, 0.18, { vol: 1 });
+    tone(2012, 0.18, { type: 'sawtooth', vol: 0.6 });
+  },
+  // 試合終了: 体育館のブザー風「ビーーッ」（倍音たっぷり＋電気的なうなり）
+  buzzer(delay = 0) {
+    const opt = { type: 'sawtooth', vol: 0.8, delay, am: 0.35, amRate: 50 };
+    tone(740, 2.0, opt);
+    tone(747, 2.0, opt);
+    tone(1110, 2.0, { ...opt, type: 'square', vol: 0.5 });
+    tone(1480, 2.0, { ...opt, type: 'square', vol: 0.4 });
+  },
+  // 試合開始: 審判の笛風「ピッ・ピッ・ピーーッ」
+  start() {
+    const whistle = { vol: 1, fm: 180, fmRate: 28 };
+    tone(3000, 0.16, { ...whistle, delay: 0 });
+    tone(3000, 0.16, { ...whistle, delay: 0.3 });
+    tone(3000, 0.9, { ...whistle, delay: 0.6 });
+    tone(1500, 0.9, { ...whistle, vol: 0.5, fm: 90, delay: 0.6 });
+  },
+  // 全ラウンド終了: ブザー2回
+  finish() {
+    sound.buzzer(0);
+    sound.buzzer(2.3);
+  },
+};
+
+// ---------- 画面スリープ防止 ----------
+let wakeLock = null;
+async function lockScreen() {
+  try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } catch (e) {}
+}
+function unlockScreen() {
+  if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && running) lockScreen();
+});
+
+// ---------- タイマー ----------
+let phase = 'idle';   // idle | play | rest | done
+let round = 1;
+let remaining = S.play * 1000;
+let endAt = 0;
+let running = false;
+let lastSec = null;
+let timerId = null;
+
+const phaseDur = p => (p === 'rest' ? S.rest : S.play) * 1000;
+
+function start() {
+  initAudio();
+  if (phase === 'idle' || phase === 'done') {
+    phase = 'play';
+    round = 1;
+    remaining = phaseDur('play');
+    sound.start();
+  }
+  endAt = Date.now() + remaining;
+  lastSec = Math.ceil(remaining / 1000);
+  running = true;
+  clearInterval(timerId);
+  timerId = setInterval(update, 50);
+  lockScreen();
+  render();
+}
+
+function pause() {
+  running = false;
+  clearInterval(timerId);
+  remaining = Math.max(0, endAt - Date.now());
+  unlockScreen();
+  render();
+}
+
+function reset() {
+  pause();
+  phase = 'idle';
+  round = 1;
+  remaining = phaseDur('play');
+  render();
+}
+
+function update() {
+  remaining = Math.max(0, endAt - Date.now());
+  const sec = Math.ceil(remaining / 1000);
+  if (sec !== lastSec) {
+    lastSec = sec;
+    if (sec === 0) { nextPhase(true); return; }
+    if (S.countdown && sec <= 5) sound.countdown();
+    else if (S.tick && (phase === 'play' || S.tickRest)) sound.tick();
+  }
+  render();
+}
+
+// 次のフェーズへ（playSound=false はスキップ時）
+function nextPhase(playSound) {
+  const base = running ? endAt : Date.now();
+  if (phase === 'play') {
+    if (S.rounds > 0 && round >= S.rounds) {
+      if (playSound) sound.finish();
+      pause();
+      phase = 'done';
+      remaining = 0;
+      render();
+      return;
+    }
+    if (playSound) sound.buzzer();
+    if (S.rest > 0) {
+      phase = 'rest';
+    } else {
+      round++;
+      if (playSound) sound.start();
+    }
+  } else {
+    if (playSound) sound.start();
+    phase = 'play';
+    round++;
+  }
+  // 前フェーズの終了時刻を基準にしてズレを防ぐ
+  endAt = base + phaseDur(phase);
+  remaining = running ? Math.max(0, endAt - Date.now()) : phaseDur(phase);
+  lastSec = Math.ceil(remaining / 1000);
+  render();
+}
+
+function skip() {
+  if (phase === 'idle' || phase === 'done') return;
+  endAt = Date.now();
+  nextPhase(false);
+  if (running) { endAt = Date.now() + phaseDur(phase); remaining = phaseDur(phase); }
+  render();
+}
+
+// ---------- 表示 ----------
+const fmt = s => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+const PHASE_LABEL = { idle: '準備', play: '試合', rest: '休憩', done: '終了' };
+
+function render() {
+  document.body.className = phase;
+  $('phase').textContent = PHASE_LABEL[phase];
+  $('round').textContent = `ラウンド ${round}` + (S.rounds > 0 ? ` / ${S.rounds}` : '');
+  $('time').textContent = fmt(Math.ceil(remaining / 1000));
+
+  const total = phase === 'idle' || phase === 'done' ? 1 : phaseDur(phase);
+  const ratio = phase === 'idle' ? 0 : phase === 'done' ? 1 : 1 - remaining / total;
+  $('progress').style.width = `${Math.min(100, ratio * 100)}%`;
+
+  let next = '';
+  if (phase === 'play') {
+    next = S.rounds > 0 && round >= S.rounds ? '次: 終了' : S.rest > 0 ? `次: 休憩 ${fmt(S.rest)}` : `次: 試合 ${fmt(S.play)}`;
+  } else if (phase === 'rest') {
+    next = `次: 試合 ${fmt(S.play)}`;
+  } else if (phase === 'idle') {
+    next = `試合 ${fmt(S.play)} / 休憩 ${fmt(S.rest)}`;
+  } else {
+    next = 'おつかれさま！';
+  }
+  $('next').textContent = next;
+
+  const btn = $('startBtn');
+  btn.textContent = running ? '一時停止' : phase === 'idle' || phase === 'done' ? 'スタート' : '再開';
+  btn.classList.toggle('pause', running);
+
+  $('tickChip').textContent = `カチカチ ${S.tick ? 'ON' : 'OFF'}`;
+  $('tickChip').classList.toggle('on', S.tick);
+}
+
+function renderSettings() {
+  document.querySelectorAll('.stepper').forEach(el => {
+    const k = el.dataset.key;
+    el.querySelector('output').textContent = k === 'rounds' ? (S.rounds === 0 ? '∞' : S.rounds) : fmt(S[k]);
+  });
+  ['tick', 'tickRest', 'countdown'].forEach(k => { $(k).checked = S[k]; });
+  $('volume').value = S.volume;
+}
+
+// ---------- イベント ----------
+$('startBtn').addEventListener('click', () => (running ? pause() : start()));
+$('resetBtn').addEventListener('click', reset);
+$('skipBtn').addEventListener('click', skip);
+$('tickChip').addEventListener('click', () => { S.tick = !S.tick; save(); render(); renderSettings(); });
+
+$('settingsBtn').addEventListener('click', () => { renderSettings(); $('sheet').classList.add('open'); });
+$('closeBtn').addEventListener('click', () => $('sheet').classList.remove('open'));
+$('sheet').addEventListener('click', e => { if (e.target.id === 'sheet') $('sheet').classList.remove('open'); });
+
+document.querySelectorAll('.stepper button').forEach(b => {
+  b.addEventListener('click', () => {
+    const k = b.parentElement.dataset.key;
+    const [min, max] = LIMITS[k];
+    S[k] = Math.min(max, Math.max(min, S[k] + Number(b.dataset.d)));
+    save();
+    if (phase === 'idle') remaining = phaseDur('play');
+    renderSettings();
+    render();
+  });
+});
+['tick', 'tickRest', 'countdown'].forEach(k => {
+  $(k).addEventListener('change', e => { S[k] = e.target.checked; save(); render(); });
+});
+$('volume').addEventListener('input', e => {
+  S.volume = Number(e.target.value);
+  save();
+  if (master) master.gain.value = masterGain();
+});
+$('testBtn').addEventListener('click', () => {
+  initAudio();
+  sound.tick();
+  setTimeout(sound.tick, 1000);
+  setTimeout(sound.countdown, 2000);
+  setTimeout(sound.start, 3000);
+  setTimeout(() => sound.buzzer(), 4800);
+});
+
+render();
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+</script>
+</body>
+</html>
